@@ -25,7 +25,6 @@ label{font-size:12px;color:#888}
 #toolbar2{display:flex;align-items:center;gap:5px;padding:5px 10px;background:#0a0a0a;border-bottom:1px solid #333;flex-wrap:wrap;flex-shrink:0}
 #canvas-wrap{flex:1;overflow:hidden;position:relative}
 canvas{position:absolute;top:0;left:0}
-#statusbar{font-size:11px;color:#666;padding:4px 10px;background:#000;border-top:1px solid #222;flex-shrink:0}
 .speed-wrap{display:flex;align-items:center;gap:6px}
 input[type=range]{width:80px;accent-color:#3a7abc;cursor:pointer}
 #speed-label{font-size:11px;color:#888;min-width:42px}
@@ -72,8 +71,6 @@ kbd{font-size:10px;background:#333;border:1px solid #555;border-radius:3px;paddi
     <span id="speed-label">5/s</span>
   </div>
   <div class="sep"></div>
-  <button class="tool-btn" id="btn-undo" onclick="undo()" disabled>↩ Undo <kbd>Ctrl+Z</kbd></button>
-  <div class="sep"></div>
   <div class="selection-btns" id="sel-btns" style="display:none">
     <button class="tool-btn" onclick="moveSelection()">Move <kbd>G</kbd></button>
     <button class="tool-btn" onclick="copySelection()">Copy <kbd>C</kbd></button>
@@ -89,15 +86,19 @@ kbd{font-size:10px;background:#333;border:1px solid #555;border-radius:3px;paddi
   <div class="sep"></div>
   <button class="tool-btn" id="btn-draw" onclick="toggleDrawMode()">✏️ Draw</button>
   <button class="tool-btn" id="btn-erase-draw" onclick="toggleEraseDrawMode()">🧹 Erase Drawing</button>
+  <button class="tool-btn danger" onclick="clearAllDrawings()">🗑 Clear Drawings</button>
   <div id="draw-opts" style="display:none;align-items:center;gap:6px">
     <label>Color:</label>
     <input type="color" id="draw-color" value="#ff4444" style="width:28px;height:22px;border:1px solid #444;background:#2a2a2a;cursor:pointer;padding:1px;border-radius:3px">
     <label>Size:</label>
     <input type="range" id="draw-size" min="2" max="40" value="6" style="width:70px;accent-color:#3a7abc;cursor:pointer">
   </div>
+  <div id="erase-opts" style="display:none;align-items:center;gap:6px">
+    <label>Eraser Size:</label>
+    <input type="range" id="erase-size" min="4" max="80" value="16" style="width:70px;accent-color:#3a7abc;cursor:pointer">
+  </div>
 </div>
 <div id="canvas-wrap"><canvas id="c"></canvas></div>
-<div id="statusbar">gen 0</div>
 
 <script>
 const canvas=document.getElementById('c');
@@ -129,7 +130,6 @@ let rotatePreviewCells=null; // {cells, newSelStart, newSelEnd} computed at prev
 function pushUndo(){
   undoStack.push({g:JSON.stringify(grid),gen:genCount,phase:subtickPhase});
   if(undoStack.length>UNDO_MAX)undoStack.shift();
-  document.getElementById('btn-undo').disabled=false;
 }
 function undo(){
   if(!undoStack.length)return;
@@ -137,7 +137,6 @@ function undo(){
   grid=JSON.parse(s.g);
   genCount=s.gen;
   subtickPhase=s.phase;
-  if(!undoStack.length)document.getElementById('btn-undo').disabled=true;
   updateSubtickUI();draw();
 }
 
@@ -621,15 +620,6 @@ function _draw(){
     ctx.strokeStyle='rgba(200,200,255,0.2)';ctx.lineWidth=1;
     ctx.strokeRect(px+1,py+1,cs-2,cs-2);
   }
-
-  // status bar
-  const phaseNames=['Move','Rotate','Convert'];
-  const phaseStr=subtickPhase>0?` · next subtick: ${phaseNames[subtickPhase]}`:'';
-  document.getElementById('statusbar').textContent=
-    `gen ${genCount}${phaseStr} · ${Object.keys(grid).length} cells · ${masses.length} glue mass${masses.length!==1?'es':''}` +
-    (pasting?' · click to paste · Esc cancels':'')+
-    (movingSelection?' · click destination to move · Esc cancels':'')+
-    (rotatingSelection?' · click to commit rotation · Esc cancels':'');
 }
 
 function drawCell(cell,x,y,s){
@@ -752,7 +742,7 @@ canvas.addEventListener('mousedown',e=>{
 
 canvas.addEventListener('mousemove',e=>{
   const[mx,my]=getPos(e);
-  if(panning){ox+=mx-lastMx;oy+=my-lastMy;lastMx=mx;lastMy=my;draw();return;}
+  if(panning){ox+=mx-lastMx;oy+=my-lastMy;lastMx=mx;lastMy=my;_draw();return;}
   const[cx,cy]=s2c(mx,my);
   hoverCell=[cx,cy];
   if(selDragging){selEnd={x:cx,y:cy};updateSelUI();}
@@ -797,16 +787,21 @@ ox=canvas.width/2-8*CELL*scale;oy=canvas.height/2-5*CELL*scale;
 updateSpeed();updateSubtickUI();draw();
 
 // ── World-space drawing layer ──────────────────────────────────────────────────
-// Strokes are stored in world (grid) coordinates and re-projected each frame,
-// so they pan/zoom with the simulation exactly like cells do.
-//
-// drawStrokes: array of {pts:[{wx,wy},...], color, size, erase}
-// currentStroke: the stroke being built during a mousedown drag
+// Draw strokes and erase strokes are stored in world coordinates.
+// Rendering uses an offscreen canvas so erase (destination-out) never touches
+// the simulation pixels — only the drawing layer itself is composited.
 
 let drawMode=false,eraseDrawMode=false;
 let drawPainting=false;
-let drawStrokes=[];
+let drawStrokes=[];    // {pts:[{wx,wy}], color, size, erase}
 let currentStroke=null;
+
+const offCanvas=document.createElement('canvas');
+const offCtx=offCanvas.getContext('2d');
+function syncOffCanvas(){
+  offCanvas.width=canvas.width;offCanvas.height=canvas.height;
+}
+syncOffCanvas();
 
 function s2w(mx,my){return{wx:(mx-ox)/(CELL*scale),wy:(my-oy)/(CELL*scale)};}
 
@@ -817,6 +812,7 @@ function toggleDrawMode(){
   document.getElementById('btn-erase-draw').classList.remove('active');
   canvas.style.cursor=drawMode?'crosshair':'';
   document.getElementById('draw-opts').style.display=drawMode?'flex':'none';
+  document.getElementById('erase-opts').style.display='none';
 }
 function toggleEraseDrawMode(){
   drawMode=false;
@@ -824,32 +820,45 @@ function toggleEraseDrawMode(){
   document.getElementById('btn-erase-draw').classList.toggle('active',eraseDrawMode);
   document.getElementById('btn-draw').classList.remove('active');
   canvas.style.cursor=eraseDrawMode?'cell':'';
+  document.getElementById('erase-opts').style.display=eraseDrawMode?'flex':'none';
   document.getElementById('draw-opts').style.display='none';
+}
+function clearAllDrawings(){
+  drawStrokes=[];currentStroke=null;draw();
+}
+
+function paintStroke(c,stroke){
+  if(!stroke.pts.length)return;
+  c.lineWidth=stroke.size*scale;
+  c.lineCap='round';c.lineJoin='round';
+  c.beginPath();
+  c.moveTo(stroke.pts[0].wx*CELL*scale+ox, stroke.pts[0].wy*CELL*scale+oy);
+  for(let i=1;i<stroke.pts.length;i++)
+    c.lineTo(stroke.pts[i].wx*CELL*scale+ox, stroke.pts[i].wy*CELL*scale+oy);
+  c.stroke();
 }
 
 function renderDrawStrokes(){
   const allStrokes=currentStroke?[...drawStrokes,currentStroke]:drawStrokes;
   if(!allStrokes.length)return;
-  ctx.save();
+
+  if(offCanvas.width!==canvas.width||offCanvas.height!==canvas.height)syncOffCanvas();
+  offCtx.clearRect(0,0,offCanvas.width,offCanvas.height);
+
   for(const stroke of allStrokes){
     if(!stroke.pts.length)continue;
-    ctx.globalCompositeOperation=stroke.erase?'destination-out':'source-over';
-    ctx.strokeStyle=stroke.erase?'rgba(0,0,0,1)':stroke.color;
-    ctx.lineWidth=stroke.size*scale;
-    ctx.lineCap='round';
-    ctx.lineJoin='round';
-    ctx.beginPath();
-    const sx0=stroke.pts[0].wx*CELL*scale+ox,sy0=stroke.pts[0].wy*CELL*scale+oy;
-    ctx.moveTo(sx0,sy0);
-    for(let i=1;i<stroke.pts.length;i++){
-      const sx=stroke.pts[i].wx*CELL*scale+ox;
-      const sy=stroke.pts[i].wy*CELL*scale+oy;
-      ctx.lineTo(sx,sy);
+    if(stroke.erase){
+      offCtx.globalCompositeOperation='destination-out';
+      offCtx.strokeStyle='rgba(0,0,0,1)';
+    } else {
+      offCtx.globalCompositeOperation='source-over';
+      offCtx.strokeStyle=stroke.color;
     }
-    ctx.stroke();
+    paintStroke(offCtx,stroke);
   }
-  ctx.globalCompositeOperation='source-over';
-  ctx.restore();
+  offCtx.globalCompositeOperation='source-over';
+
+  ctx.drawImage(offCanvas,0,0);
 }
 
 canvas.addEventListener('mousedown',e=>{
@@ -859,7 +868,9 @@ canvas.addEventListener('mousedown',e=>{
   drawPainting=true;
   const[mx,my]=getPos(e);
   const pt=s2w(mx,my);
-  const sz=parseInt(document.getElementById('draw-size').value);
+  const sz=eraseDrawMode
+    ?parseInt(document.getElementById('erase-size').value)
+    :parseInt(document.getElementById('draw-size').value);
   const col=document.getElementById('draw-color').value;
   currentStroke={pts:[pt],color:col,size:sz,erase:eraseDrawMode};
   draw();
