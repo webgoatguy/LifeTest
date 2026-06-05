@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cellular Automata</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#000;color:#e0e0e0;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+#toolbar{display:flex;align-items:center;gap:5px;padding:7px 10px;background:#111;border-bottom:1px solid #333;flex-wrap:wrap;flex-shrink:0}
+.tool-btn{padding:4px 9px;font-size:12px;border:1px solid #444;border-radius:5px;background:#2a2a2a;color:#ccc;cursor:pointer;white-space:nowrap}
+.tool-btn:hover{background:#333;color:#fff}
+.tool-btn.active{background:#1a4a7a;border-color:#3a7abc;color:#7ac4ff}
+.tool-btn.danger{border-color:#5a2a2a}
+.tool-btn.danger:hover{background:#3a1a1a;color:#ff8888}
+.tool-btn:disabled{opacity:0.35;cursor:default}
+.tool-btn:disabled:hover{background:#2a2a2a;color:#ccc}
+.sep{width:1px;height:22px;background:#444;margin:0 2px;flex-shrink:0}
+#dir-group,#rot-group{display:none;align-items:center;gap:4px}
+.dir-pick{display:flex;gap:3px}
+.dir-btn{width:24px;height:24px;font-size:12px;border:1px solid #444;border-radius:4px;background:#2a2a2a;color:#ccc;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.dir-btn:hover{background:#333;color:#fff}
+.dir-btn.active{background:#1a4a7a;border-color:#3a7abc;color:#7ac4ff}
+label{font-size:12px;color:#888}
+#toolbar2{display:flex;align-items:center;gap:5px;padding:5px 10px;background:#0a0a0a;border-bottom:1px solid #333;flex-wrap:wrap;flex-shrink:0}
+#canvas-wrap{flex:1;overflow:hidden;position:relative}
+canvas{position:absolute;top:0;left:0}
+#statusbar{font-size:11px;color:#666;padding:4px 10px;background:#000;border-top:1px solid #222;flex-shrink:0}
+.speed-wrap{display:flex;align-items:center;gap:6px}
+input[type=range]{width:80px;accent-color:#3a7abc;cursor:pointer}
+#speed-label{font-size:11px;color:#888;min-width:42px}
+.selection-btns{display:flex;gap:4px}
+kbd{font-size:10px;background:#333;border:1px solid #555;border-radius:3px;padding:1px 4px;color:#aaa}
+#btn-subtick.subtick-active{border-color:#7a5a1a;color:#ffcc66;background:#2a1e00}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <label>Place:</label>
+  <button class="tool-btn active" id="t-neutral" onclick="setTool('neutral')">⬜ Neutral</button>
+  <button class="tool-btn" id="t-converter" onclick="setTool('converter')">🟩 Converter</button>
+  <button class="tool-btn" id="t-rotator" onclick="setTool('rotator')">🟦 Rotator</button>
+  <button class="tool-btn" id="t-move" onclick="setTool('move')">🟨 Move</button>
+  <button class="tool-btn" id="t-glue" onclick="setTool('glue')">🩷 Glue</button>
+  <button class="tool-btn" id="t-select" onclick="setTool('select')">⬚ Select <kbd>S</kbd></button>
+  <button class="tool-btn" id="t-erase" onclick="setTool('erase')">✕ Erase</button>
+  <div class="sep"></div>
+  <div id="dir-group">
+    <label>Dir:</label>
+    <div class="dir-pick">
+      <button class="dir-btn active" id="d-up" onclick="setDir('up')">↑</button>
+      <button class="dir-btn" id="d-down" onclick="setDir('down')">↓</button>
+      <button class="dir-btn" id="d-left" onclick="setDir('left')">←</button>
+      <button class="dir-btn" id="d-right" onclick="setDir('right')">→</button>
+    </div>
+  </div>
+  <div id="rot-group">
+    <label>Spin:</label>
+    <div class="dir-pick">
+      <button class="dir-btn active" id="r-cw" onclick="setRot('cw')">↻</button>
+      <button class="dir-btn" id="r-ccw" onclick="setRot('ccw')">↺</button>
+    </div>
+  </div>
+</div>
+<div id="toolbar2">
+  <button class="tool-btn" onclick="userStep()">▶ Step <kbd>Space</kbd></button>
+  <button class="tool-btn" id="btn-subtick" onclick="userSubtick()">◈ Subtick <kbd>T</kbd></button>
+  <button class="tool-btn" id="btn-auto" onclick="toggleAuto()">⏵ Auto</button>
+  <div class="speed-wrap">
+    <label>Speed:</label>
+    <input type="range" id="speed-slider" min="1" max="8" value="4" oninput="updateSpeed()">
+    <span id="speed-label">5/s</span>
+  </div>
+  <div class="sep"></div>
+  <button class="tool-btn" id="btn-undo" onclick="undo()" disabled>↩ Undo <kbd>Ctrl+Z</kbd></button>
+  <div class="sep"></div>
+  <div class="selection-btns" id="sel-btns" style="display:none">
+    <button class="tool-btn" onclick="moveSelection()">Move <kbd>G</kbd></button>
+    <button class="tool-btn" onclick="copySelection()">Copy <kbd>C</kbd></button>
+    <button class="tool-btn" id="btn-paste" style="display:none" onclick="pasteMode()">Paste <kbd>V</kbd></button>
+    <button class="tool-btn" onclick="startRotatePreview()">Rotate 90° <kbd>R</kbd></button>
+    <button class="tool-btn" onclick="reflectSelection('h')">Flip H</button>
+    <button class="tool-btn" onclick="reflectSelection('v')">Flip V</button>
+    <button class="tool-btn danger" onclick="deleteSelection()">Delete <kbd>Del</kbd></button>
+    <button class="tool-btn" onclick="deselect()">Deselect <kbd>Esc</kbd></button>
+  </div>
+  <div class="sep"></div>
+  <button class="tool-btn" onclick="clearGrid()">⬛ Clear</button>
+  <div class="sep"></div>
+  <button class="tool-btn" id="btn-draw" onclick="toggleDrawMode()">✏️ Draw</button>
+  <button class="tool-btn" id="btn-erase-draw" onclick="toggleEraseDrawMode()">🧹 Erase Drawing</button>
+  <div id="draw-opts" style="display:none;align-items:center;gap:6px">
+    <label>Color:</label>
+    <input type="color" id="draw-color" value="#ff4444" style="width:28px;height:22px;border:1px solid #444;background:#2a2a2a;cursor:pointer;padding:1px;border-radius:3px">
+    <label>Size:</label>
+    <input type="range" id="draw-size" min="2" max="40" value="6" style="width:70px;accent-color:#3a7abc;cursor:pointer">
+  </div>
+</div>
+<div id="canvas-wrap"><canvas id="c"></canvas></div>
+<div id="statusbar">gen 0</div>
+
+<script>
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+const wrap=document.getElementById('canvas-wrap');
+const CELL=36;
+let ox=0,oy=0,scale=1;
+let grid={};
+let tool='neutral',dir='up',rot='cw';
+let dragging=false,panning=false,lastMx=0,lastMy=0;
+let autoRun=false,autoTimer=null,autoInterval=200;
+let hoverCell=null;
+let genCount=0;
+// subtickPhase: 0=start, 1=after movement, 2=after rotators
+let subtickPhase=0;
+
+// Undo stack — each entry: {g: JSON string, gen, phase}
+const UNDO_MAX=50;
+let undoStack=[];
+
+// Selection
+let selStart=null,selEnd=null,selDragging=false;
+let clipboard=null;
+let movingSelection=false,pasting=false,rotatingSelection=false;
+let moveStartCell=null;
+let rotatePreviewCells=null; // {cells, newSelStart, newSelEnd} computed at preview start
+
+// ── Undo ──────────────────────────────────────────────────────────────────────
+function pushUndo(){
+  undoStack.push({g:JSON.stringify(grid),gen:genCount,phase:subtickPhase});
+  if(undoStack.length>UNDO_MAX)undoStack.shift();
+  document.getElementById('btn-undo').disabled=false;
+}
+function undo(){
+  if(!undoStack.length)return;
+  const s=undoStack.pop();
+  grid=JSON.parse(s.g);
+  genCount=s.gen;
+  subtickPhase=s.phase;
+  if(!undoStack.length)document.getElementById('btn-undo').disabled=true;
+  updateSubtickUI();draw();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function key(cx,cy){return cx+','+cy}
+function parseKey(k){const p=k.split(',');return[+p[0],+p[1]]}
+function neighbors4(cx,cy){return[[cx,cy-1],[cx,cy+1],[cx-1,cy],[cx+1,cy]]}
+
+// ── Union-Find ────────────────────────────────────────────────────────────────
+function makeUF(keys){
+  const parent=new Map();
+  for(const k of keys)parent.set(k,k);
+  function find(k){
+    if(parent.get(k)!==k)parent.set(k,find(parent.get(k)));
+    return parent.get(k);
+  }
+  function union(a,b){parent.set(find(a),find(b));}
+  return{find,union};
+}
+
+// ── Glue masses ───────────────────────────────────────────────────────────────
+// Single-pass O(N·α(N)) algorithm — no while(changed) loop needed.
+// For each non-glue cell, union all neighboring glue roots in one pass.
+// Union-find path compression ensures this is sufficient.
+function findGlueMasses(g){
+  g=g||grid;
+  const glueKeys=Object.keys(g).filter(k=>g[k].type==='glue');
+  if(!glueKeys.length)return{masses:[],cellToMass:new Map()};
+  const uf=makeUF(glueKeys);
+
+  // Step 1: union directly adjacent glue-glue pairs
+  for(const k of glueKeys){
+    const[cx,cy]=parseKey(k);
+    for(const[nx,ny] of neighbors4(cx,cy)){
+      const nk=key(nx,ny);
+      if(g[nk]&&g[nk].type==='glue')uf.union(k,nk);
+    }
+  }
+
+  // Step 2: single pass over all non-glue cells — union all glue neighbors together
+  for(const nk of Object.keys(g)){
+    if(g[nk].type==='glue')continue;
+    const[cx,cy]=parseKey(nk);
+    let firstRoot=null;
+    for(const[nx,ny] of neighbors4(cx,cy)){
+      const gk=key(nx,ny);
+      if(g[gk]&&g[gk].type==='glue'){
+        const r=uf.find(gk);
+        if(firstRoot===null)firstRoot=r;
+        else uf.union(firstRoot,r);
+      }
+    }
+  }
+
+  // Build final masses
+  const rootToGlue=new Map();
+  for(const k of glueKeys){
+    const r=uf.find(k);
+    if(!rootToGlue.has(r))rootToGlue.set(r,new Set());
+    rootToGlue.get(r).add(k);
+  }
+  const masses=[],cellToMass=new Map();
+  for(const[,glueSet] of rootToGlue){
+    const mass=new Set(glueSet);
+    for(const gk of glueSet){
+      const[cx,cy]=parseKey(gk);
+      for(const[nx,ny] of neighbors4(cx,cy)){
+        const nk=key(nx,ny);
+        if(g[nk]&&g[nk].type!=='glue')mass.add(nk);
+      }
+    }
+    const idx=masses.length;masses.push(mass);
+    for(const k of mass)cellToMass.set(k,idx);
+  }
+  return{masses,cellToMass};
+}
+
+function massMovement(mass,g){
+  g=g||grid;
+  let R=0,L=0,U=0,D=0,G=0;
+  for(const k of mass){
+    const c=g[k];if(!c)continue;
+    if(c.type==='glue')G++;
+    if(c.type==='move'){
+      if(c.dir==='right')R++;else if(c.dir==='left')L++;
+      else if(c.dir==='up')U++;else if(c.dir==='down')D++;
+    }
+  }
+  if(!G)return{dx:0,dy:0};
+  return{dx:Math.floor(R/G)-Math.floor(L/G),dy:Math.floor(D/G)-Math.floor(U/G)};
+}
+
+// ── Direction helpers ─────────────────────────────────────────────────────────
+function rotateDirCW(d){return{up:'right',right:'down',down:'left',left:'up'}[d]}
+function applyNetRotation(d,net){
+  net=((net%4)+4)%4;
+  for(let i=0;i<net;i++)d=rotateDirCW(d);
+  return d;
+}
+
+// ── Simulation phases ─────────────────────────────────────────────────────────
+function phaseMove(g){
+  const{masses,cellToMass}=findGlueMasses(g);
+  const massVecs=masses.map(m=>massMovement(m,g));
+  const nextMulti=new Map();
+  const add=(k,cell)=>{if(!nextMulti.has(k))nextMulti.set(k,[]);nextMulti.get(k).push(cell);};
+  for(const[k,cell] of Object.entries(g)){
+    const mi=cellToMass.get(k);
+    if(mi!==undefined){
+      const{dx,dy}=massVecs[mi];
+      const[cx,cy]=parseKey(k);add(key(cx+dx,cy+dy),{...cell});
+    } else if(cell.type==='move'){
+      const[cx,cy]=parseKey(k);
+      const dx=cell.dir==='right'?1:cell.dir==='left'?-1:0;
+      const dy=cell.dir==='down'?1:cell.dir==='up'?-1:0;
+      add(key(cx+dx,cy+dy),{...cell});
+    } else {add(k,{...cell});}
+  }
+  const out={};
+  for(const[k,cells] of nextMulti)if(cells.length===1)out[k]={...cells[0]};
+  return out;
+}
+
+function phaseRotate(g){
+  const netRot=new Map();
+  for(const[k,cell] of Object.entries(g)){
+    if(cell.type!=='rotator')continue;
+    const[cx,cy]=parseKey(k);
+    for(const[nx,ny] of neighbors4(cx,cy)){
+      const nk=key(nx,ny),nb=g[nk];
+      if(!nb)continue;
+      if(nb.type==='converter'||nb.type==='move')
+        netRot.set(nk,(netRot.get(nk)||0)+(cell.rot==='cw'?1:-1));
+    }
+  }
+  const out={...g};
+  for(const[k,net] of netRot){
+    const cell=g[k];if(!cell)continue;
+    out[k]={...cell,dir:applyNetRotation(cell.dir,net)};
+  }
+  return out;
+}
+
+function phaseConvert(g){
+  const out={...g};
+  for(const[k,cell] of Object.entries(g)){
+    if(cell.type!=='converter')continue;
+    const[cx,cy]=parseKey(k);
+    let a,b,tx,ty;
+    if(cell.dir==='left'||cell.dir==='right'){
+      a=g[key(cx,cy-1)];b=g[key(cx,cy+1)];
+      tx=cx+(cell.dir==='left'?-1:1);ty=cy;
+    }else{
+      a=g[key(cx-1,cy)];b=g[key(cx+1,cy)];
+      tx=cx;ty=cy+(cell.dir==='down'?1:-1);
+    }
+    const same=(p,q)=>{
+      if(!p&&!q)return true;if(!p||!q)return false;
+      return p.type===q.type&&p.dir===q.dir&&p.rot===q.rot;
+    };
+    if(same(a,b)){
+      const tk=key(tx,ty);
+      if(!a)delete out[tk];else out[tk]={...a};
+    }
+  }
+  return out;
+}
+
+// Full step — completes from wherever we are in subtick cycle
+function fullStep(saveUndo){
+  if(saveUndo)pushUndo();
+  if(subtickPhase===0){grid=phaseMove(grid);grid=phaseRotate(grid);grid=phaseConvert(grid);}
+  else if(subtickPhase===1){grid=phaseRotate(grid);grid=phaseConvert(grid);}
+  else if(subtickPhase===2){grid=phaseConvert(grid);}
+  genCount++;subtickPhase=0;
+  updateSubtickUI();draw();
+}
+
+// One subtick advance
+function subtick(saveUndo){
+  if(saveUndo)pushUndo();
+  if(subtickPhase===0){grid=phaseMove(grid);subtickPhase=1;}
+  else if(subtickPhase===1){grid=phaseRotate(grid);subtickPhase=2;}
+  else if(subtickPhase===2){grid=phaseConvert(grid);genCount++;subtickPhase=0;}
+  updateSubtickUI();draw();
+}
+
+function updateSubtickUI(){
+  const btn=document.getElementById('btn-subtick');
+  const next=['Move','Rotate','Convert'][subtickPhase];
+  btn.innerHTML=`◈ Subtick: ${next} <kbd>T</kbd>`;
+  btn.classList.toggle('subtick-active',subtickPhase!==0);
+}
+
+function userStep(){fullStep(true)}
+function userSubtick(){subtick(true)}
+
+// ── Speed ─────────────────────────────────────────────────────────────────────
+const speedValues=[1,2,3,5,8,15,30,60];
+function updateSpeed(){
+  const v=parseInt(document.getElementById('speed-slider').value);
+  const fps=speedValues[v-1];
+  document.getElementById('speed-label').textContent=fps+'/s';
+  autoInterval=Math.round(1000/fps);
+  if(autoRun){clearInterval(autoTimer);autoTimer=setInterval(()=>fullStep(false),autoInterval);}
+}
+
+function toggleAuto(){
+  autoRun=!autoRun;
+  const btn=document.getElementById('btn-auto');
+  btn.textContent=autoRun?'⏸ Pause':'⏵ Auto';
+  btn.classList.toggle('active',autoRun);
+  if(autoRun){
+    pushUndo(); // save snapshot at the moment play starts
+    autoTimer=setInterval(()=>fullStep(false),autoInterval);
+  } else {
+    clearInterval(autoTimer);
+  }
+}
+
+// ── Selection ─────────────────────────────────────────────────────────────────
+function getSelBounds(){
+  if(!selStart||!selEnd)return null;
+  return{x1:Math.min(selStart.x,selEnd.x),y1:Math.min(selStart.y,selEnd.y),
+         x2:Math.max(selStart.x,selEnd.x),y2:Math.max(selStart.y,selEnd.y)};
+}
+function getSelectedCells(){
+  const b=getSelBounds();if(!b)return[];
+  return Object.entries(grid)
+    .filter(([k])=>{const[cx,cy]=parseKey(k);return cx>=b.x1&&cx<=b.x2&&cy>=b.y1&&cy<=b.y2})
+    .map(([k,cell])=>{const[cx,cy]=parseKey(k);return{cx,cy,cell:{...cell}}});
+}
+function updateSelUI(){
+  const has=!!(selStart&&selEnd);
+  document.getElementById('sel-btns').style.display=has?'flex':'none';
+}
+function copySelection(){
+  const b=getSelBounds();if(!b)return;
+  clipboard={cells:getSelectedCells(),x1:b.x1,y1:b.y1,w:b.x2-b.x1,h:b.y2-b.y1};
+  document.getElementById('btn-paste').style.display='';
+  updateSelUI();draw();
+}
+function pasteMode(){if(!clipboard)return;pasting=true;selStart=null;selEnd=null;draw();}
+function commitPaste(dx,dy){
+  if(!clipboard)return;pushUndo();
+  for(const{cx,cy,cell} of clipboard.cells)
+    grid[key(cx-clipboard.x1+dx,cy-clipboard.y1+dy)]={...cell};
+  pasting=false;draw();
+}
+function deleteSelection(){
+  pushUndo();
+  for(const{cx,cy} of getSelectedCells())delete grid[key(cx,cy)];
+  selStart=null;selEnd=null;updateSelUI();draw();
+}
+function moveSelection(){
+  if(!selStart||!selEnd)return;
+  movingSelection=true;moveStartCell=hoverCell?[...hoverCell]:null;draw();
+}
+function commitMove(dx,dy){
+  if(dx===0&&dy===0){movingSelection=false;draw();return;}
+  pushUndo();
+  const b=getSelBounds(),cells=getSelectedCells();
+  for(const{cx,cy} of cells)delete grid[key(cx,cy)];
+  for(const{cx,cy,cell} of cells)grid[key(cx+dx,cy+dy)]={...cell};
+  selStart={x:b.x1+dx,y:b.y1+dy};selEnd={x:b.x2+dx,y:b.y2+dy};
+  movingSelection=false;draw();
+}
+function deselect(){
+  pasting=false;movingSelection=false;rotatingSelection=false;rotatePreviewCells=null;
+  selStart=null;selEnd=null;updateSelUI();draw();
+}
+
+// Compute rotated cells without committing to grid
+function computeRotatedCells(cells, b){
+  const h=b.y2-b.y1,w=b.x2-b.x1;
+  return{
+    cells: cells.map(({cx,cy,cell})=>{
+      const lx=cx-b.x1,ly=cy-b.y1;
+      const nc={...cell};if(nc.dir)nc.dir=rotateDirCW(nc.dir);
+      return{cx:b.x1+(h-ly),cy:b.y1+lx,cell:nc};
+    }),
+    newSelStart:{x:b.x1,y:b.y1},
+    newSelEnd:{x:b.x1+h,y:b.y1+w}
+  };
+}
+
+function startRotatePreview(){
+  const b=getSelBounds();if(!b)return;
+  if(!rotatingSelection){
+    // First press: rotate original selection
+    rotatePreviewCells=computeRotatedCells(getSelectedCells(),b);
+    rotatingSelection=true;
+  } else {
+    // Subsequent presses: rotate the current preview another 90°
+    const pb=rotatePreviewCells.newSelStart&&rotatePreviewCells.newSelEnd?{
+      x1:rotatePreviewCells.newSelStart.x,y1:rotatePreviewCells.newSelStart.y,
+      x2:rotatePreviewCells.newSelEnd.x,y2:rotatePreviewCells.newSelEnd.y
+    }:b;
+    rotatePreviewCells=computeRotatedCells(rotatePreviewCells.cells,pb);
+  }
+  draw();
+}
+
+function commitRotate(){
+  if(!rotatePreviewCells)return;
+  pushUndo();
+  const orig=getSelectedCells();
+  for(const{cx,cy} of orig)delete grid[key(cx,cy)];
+  for(const{cx,cy,cell} of rotatePreviewCells.cells)grid[key(cx,cy)]={...cell};
+  selStart=rotatePreviewCells.newSelStart;
+  selEnd=rotatePreviewCells.newSelEnd;
+  rotatingSelection=false;rotatePreviewCells=null;
+  draw();
+}
+
+function reflectSelection(axis){
+  const b=getSelBounds();if(!b)return;
+  pushUndo();
+  const cells=getSelectedCells();
+  for(const{cx,cy} of cells)delete grid[key(cx,cy)];
+  const flipDir={
+    h:{left:'right',right:'left',up:'up',down:'down'},
+    v:{up:'down',down:'up',left:'left',right:'right'}
+  }[axis];
+  for(const{cx,cy,cell} of cells){
+    const nx=axis==='h'?(b.x1+b.x2-cx):cx;
+    const ny=axis==='v'?(b.y1+b.y2-cy):cy;
+    const nc={...cell};
+    if(nc.dir)nc.dir=flipDir[nc.dir];
+    if(nc.rot)nc.rot=nc.rot==='cw'?'ccw':'cw';
+    grid[key(nx,ny)]=nc;
+  }
+  draw();
+}
+
+// ── Outline drawing ───────────────────────────────────────────────────────────
+// Outline drawing — simple staircase, no rounding.
+// Each exposed edge is drawn slightly longer than the cell width (extended by `ext` on each end).
+function drawCellSetOutline(cellSet,color,lw){
+  if(!cellSet.size)return;
+  ctx.strokeStyle=color;ctx.lineWidth=lw;
+  const cs=CELL*scale;
+  const ext=lw*0.5; // extend by half linewidth so edges meet flush at corners
+  ctx.beginPath();
+  for(const k of cellSet){
+    const[cx,cy]=parseKey(k);const[px,py]=c2s(cx,cy);
+    if(!cellSet.has(key(cx,cy-1))){ctx.moveTo(px-ext,py);ctx.lineTo(px+cs+ext,py);}
+    if(!cellSet.has(key(cx,cy+1))){ctx.moveTo(px-ext,py+cs);ctx.lineTo(px+cs+ext,py+cs);}
+    if(!cellSet.has(key(cx-1,cy))){ctx.moveTo(px,py-ext);ctx.lineTo(px,py+cs+ext);}
+    if(!cellSet.has(key(cx+1,cy))){ctx.moveTo(px+cs,py-ext);ctx.lineTo(px+cs,py+cs+ext);}
+  }
+  ctx.stroke();
+}
+
+// ── Drawing ───────────────────────────────────────────────────────────────────
+function resize(){canvas.width=wrap.clientWidth;canvas.height=wrap.clientHeight;markDirty()}
+function c2s(cx,cy){return[cx*CELL*scale+ox,cy*CELL*scale+oy]}
+function s2c(mx,my){return[Math.floor((mx-ox)/(CELL*scale)),Math.floor((my-oy)/(CELL*scale))]}
+
+// Dirty-flag rendering: only repaint when something actually changed.
+let _dirty=false,_rafId=null;
+function markDirty(){
+  if(_dirty)return;
+  _dirty=true;
+  if(_rafId)cancelAnimationFrame(_rafId);
+  _rafId=requestAnimationFrame(()=>{_dirty=false;_rafId=null;_draw();});
+}
+// Alias: all call sites use draw(), which now just marks dirty.
+function draw(){markDirty();}
+
+function _draw(){
+  const W=canvas.width,H=canvas.height,cs=CELL*scale;
+  ctx.clearRect(0,0,W,H);
+
+  // black background
+  ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+  // grid lines
+  ctx.strokeStyle='rgba(160,160,160,0.2)';ctx.lineWidth=0.5;
+  const sx=Math.floor(-ox/cs)*cs+ox,sy=Math.floor(-oy/cs)*cs+oy;
+  for(let x=sx;x<W;x+=cs){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+  for(let y=sy;y<H;y+=cs){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+
+  // glue mass highlights
+  const{masses,cellToMass}=findGlueMasses();
+  const massColors=['rgba(220,80,160,0.08)','rgba(80,160,220,0.08)','rgba(80,220,160,0.08)',
+    'rgba(220,160,80,0.08)','rgba(160,80,220,0.08)'];
+  for(let i=0;i<masses.length;i++){
+    ctx.fillStyle=massColors[i%massColors.length];
+    for(const k of masses[i]){
+      const[cx,cy]=parseKey(k);const[px,py]=c2s(cx,cy);
+      if(px+cs<0||py+cs<0||px>W||py>H)continue; // cull
+      ctx.fillRect(px,py,cs,cs);
+    }
+  }
+
+  // draw cell bodies (already viewport-culled)
+  for(const[k,cell] of Object.entries(grid)){
+    const[cx,cy]=parseKey(k);const[px,py]=c2s(cx,cy);
+    if(px+cs<0||py+cs<0||px>W||py>H)continue;
+    drawCell(cell,px,py,cs);
+  }
+
+  // outlines: all cells use the same outline function.
+  // Build viewport-culled sets for each mass, skip masses entirely off-screen.
+  const massedKeys=new Set(cellToMass.keys());
+  const outlineLw=Math.max(1,Math.min(6,scale*1.8));
+
+  // Non-massed cells: each is its own single-cell set (viewport-culled)
+  for(const k of Object.keys(grid)){
+    if(massedKeys.has(k))continue;
+    const[cx,cy]=parseKey(k);const[px,py]=c2s(cx,cy);
+    if(px+cs<0||py+cs<0||px>W||py>H)continue;
+    drawCellSetOutline(new Set([k]),'rgba(255,255,255,0.75)',outlineLw);
+  }
+
+  // Glue masses: only draw if at least one cell in the mass is on screen
+  for(const mass of masses){
+    let visible=false;
+    for(const k of mass){
+      const[cx,cy]=parseKey(k);const[px,py]=c2s(cx,cy);
+      if(px+cs>=0&&py+cs>=0&&px<=W&&py<=H){visible=true;break;}
+    }
+    if(visible)drawCellSetOutline(mass,'rgba(255,255,255,0.9)',outlineLw);
+  }
+
+  // paste preview
+  if(pasting&&clipboard&&hoverCell){
+    const[hx,hy]=hoverCell;
+    ctx.globalAlpha=0.5;
+    for(const{cx,cy,cell} of clipboard.cells){
+      const[px,py]=c2s(cx-clipboard.x1+hx,cy-clipboard.y1+hy);
+      drawCell(cell,px,py,cs);
+    }
+    ctx.globalAlpha=1;
+    const[px,py]=c2s(hx,hy);
+    ctx.strokeStyle='rgba(100,200,255,0.8)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    ctx.strokeRect(px,py,cs*(clipboard.w+1),cs*(clipboard.h+1));ctx.setLineDash([]);
+  }
+
+  // move preview
+  if(movingSelection&&hoverCell&&moveStartCell){
+    const dx=hoverCell[0]-moveStartCell[0],dy=hoverCell[1]-moveStartCell[1];
+    ctx.globalAlpha=0.45;
+    for(const{cx,cy,cell} of getSelectedCells()){
+      const[px,py]=c2s(cx+dx,cy+dy);drawCell(cell,px,py,cs);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // rotate preview
+  if(rotatingSelection&&rotatePreviewCells){
+    ctx.globalAlpha=0.5;
+    for(const{cx,cy,cell} of rotatePreviewCells.cells){
+      const[px,py]=c2s(cx,cy);drawCell(cell,px,py,cs);
+    }
+    ctx.globalAlpha=1;
+    // draw destination selection rect
+    const ns=rotatePreviewCells.newSelStart,ne=rotatePreviewCells.newSelEnd;
+    const[px,py]=c2s(ns.x,ns.y);
+    const pw=(ne.x-ns.x+1)*cs,ph=(ne.y-ns.y+1)*cs;
+    ctx.strokeStyle='rgba(100,255,180,0.7)';ctx.lineWidth=1.5;ctx.setLineDash([5,3]);
+    ctx.strokeRect(px,py,pw,ph);ctx.setLineDash([]);
+  }
+
+  // selection rect
+  if(selStart&&selEnd){
+    const b=getSelBounds();
+    const[px,py]=c2s(b.x1,b.y1);
+    const pw=(b.x2-b.x1+1)*cs,ph=(b.y2-b.y1+1)*cs;
+    ctx.fillStyle='rgba(100,180,255,0.07)';ctx.fillRect(px,py,pw,ph);
+    ctx.strokeStyle='rgba(100,180,255,0.7)';ctx.lineWidth=1.5;ctx.setLineDash([5,3]);
+    ctx.strokeRect(px,py,pw,ph);ctx.setLineDash([]);
+  }
+
+  // world-space drawing strokes (rendered after cells, before UI overlays)
+  renderDrawStrokes();
+
+  // hover highlight
+  if(hoverCell&&!pasting&&!movingSelection){
+    const[px,py]=c2s(...hoverCell);
+    ctx.strokeStyle='rgba(200,200,255,0.2)';ctx.lineWidth=1;
+    ctx.strokeRect(px+1,py+1,cs-2,cs-2);
+  }
+
+  // status bar
+  const phaseNames=['Move','Rotate','Convert'];
+  const phaseStr=subtickPhase>0?` · next subtick: ${phaseNames[subtickPhase]}`:'';
+  document.getElementById('statusbar').textContent=
+    `gen ${genCount}${phaseStr} · ${Object.keys(grid).length} cells · ${masses.length} glue mass${masses.length!==1?'es':''}` +
+    (pasting?' · click to paste · Esc cancels':'')+
+    (movingSelection?' · click destination to move · Esc cancels':'')+
+    (rotatingSelection?' · click to commit rotation · Esc cancels':'');
+}
+
+function drawCell(cell,x,y,s){
+  const r=Math.max(2,s*0.08);
+  ctx.beginPath();ctx.roundRect(x+1,y+1,s-2,s-2,r);
+  if(cell.type==='neutral'){
+    ctx.fillStyle='#555';ctx.fill();
+  } else if(cell.type==='converter'){
+    ctx.fillStyle='#2d7a3a';ctx.fill();
+    drawArrow(cell.dir,x,y,s,'#fff');
+  } else if(cell.type==='rotator'){
+    ctx.fillStyle='#1a4fa0';ctx.fill();
+    drawRotSym(cell.rot,x,y,s);
+  } else if(cell.type==='move'){
+    ctx.fillStyle='#FBB917';ctx.fill();
+    drawArrow(cell.dir,x,y,s,'#fff');
+  } else if(cell.type==='glue'){
+    ctx.fillStyle='#FC94AF';ctx.fill();
+  }
+}
+
+function drawArrow(d,x,y,s,color){
+  // Triangle centered in cell, shifted slightly OPPOSITE to pointing direction
+  const cx=x+s/2,cy=y+s/2,r=s*0.33,shift=s*0.07;
+  const tx=cx+(d==='right'?-shift:d==='left'?shift:0);
+  const ty=cy+(d==='down'?-shift:d==='up'?shift:0);
+  ctx.fillStyle=color;ctx.beginPath();
+  if(d==='up'){ctx.moveTo(tx,ty-r);ctx.lineTo(tx-r*0.75,ty+r*0.6);ctx.lineTo(tx+r*0.75,ty+r*0.6);}
+  else if(d==='down'){ctx.moveTo(tx,ty+r);ctx.lineTo(tx-r*0.75,ty-r*0.6);ctx.lineTo(tx+r*0.75,ty-r*0.6);}
+  else if(d==='left'){ctx.moveTo(tx-r,ty);ctx.lineTo(tx+r*0.6,ty-r*0.75);ctx.lineTo(tx+r*0.6,ty+r*0.75);}
+  else{ctx.moveTo(tx+r,ty);ctx.lineTo(tx-r*0.6,ty-r*0.75);ctx.lineTo(tx-r*0.6,ty+r*0.75);}
+  ctx.closePath();ctx.fill();
+}
+
+function drawRotSym(r,x,y,s){
+  const cx=x+s/2,cy=y+s/2;
+  ctx.fillStyle='#fff';
+  ctx.font=`bold ${Math.floor(s*0.28)}px sans-serif`;
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.fillText(r==='cw'?'CW':'CCW',cx,cy);
+}
+
+function arrowHead(ex,ey,ang,size,color){
+  // Draws a triangle pointing in direction `ang` with tip at (ex,ey)
+  ctx.fillStyle=color;ctx.beginPath();
+  ctx.moveTo(ex,ey);
+  ctx.lineTo(ex+Math.cos(ang-0.5)*size,ey+Math.sin(ang-0.5)*size);
+  ctx.lineTo(ex+Math.cos(ang+0.5)*size,ey+Math.sin(ang+0.5)*size);
+  ctx.closePath();ctx.fill();
+}
+
+// ── Tool UI ───────────────────────────────────────────────────────────────────
+function setTool(t){
+  tool=t;
+  ['neutral','converter','rotator','move','glue','select','erase'].forEach(x=>
+    document.getElementById('t-'+x).classList.toggle('active',x===t));
+  document.getElementById('dir-group').style.display=(t==='converter'||t==='move')?'flex':'none';
+  document.getElementById('rot-group').style.display=(t==='rotator')?'flex':'none';
+  if(t!=='select'){pasting=false;movingSelection=false;rotatingSelection=false;rotatePreviewCells=null;}
+  draw();
+}
+function setDir(d){
+  dir=d;
+  ['up','down','left','right'].forEach(x=>document.getElementById('d-'+x).classList.toggle('active',x===d));
+}
+function setRot(r){
+  rot=r;
+  ['cw','ccw'].forEach(x=>document.getElementById('r-'+x).classList.toggle('active',x===r));
+}
+
+function placeAt(cx,cy){
+  const k=key(cx,cy);
+  if(tool==='erase')delete grid[k];
+  else if(tool==='neutral')grid[k]={type:'neutral'};
+  else if(tool==='converter')grid[k]={type:'converter',dir};
+  else if(tool==='rotator')grid[k]={type:'rotator',rot};
+  else if(tool==='move')grid[k]={type:'move',dir};
+  else if(tool==='glue')grid[k]={type:'glue'};
+}
+
+function clearGrid(){
+  pushUndo();grid={};genCount=0;subtickPhase=0;
+  selStart=null;selEnd=null;updateSelUI();updateSubtickUI();draw();
+}
+function loadExample(){
+  pushUndo();grid={};genCount=0;subtickPhase=0;selStart=null;selEnd=null;
+  const a=(cx,cy,cell)=>{grid[key(cx,cy)]=cell};
+  a(2,3,{type:'move',dir:'right'});a(3,3,{type:'glue'});
+  a(4,3,{type:'neutral'});a(5,3,{type:'glue'});a(6,3,{type:'move',dir:'right'});
+  a(2,6,{type:'move',dir:'right'});a(3,6,{type:'glue'});a(4,6,{type:'move',dir:'right'});
+  a(2,9,{type:'move',dir:'right'});a(8,6,{type:'neutral'});
+  a(4,2,{type:'rotator',rot:'cw'});a(5,2,{type:'converter',dir:'up'});
+  a(5,1,{type:'neutral'});a(5,3,{type:'neutral'});
+  updateSelUI();updateSubtickUI();
+  ox=canvas.width/2-6*CELL*scale;oy=canvas.height/2-6*CELL*scale;
+  draw();
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+function getPos(e){const r=canvas.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]}
+
+canvas.addEventListener('mousedown',e=>{
+  const[mx,my]=getPos(e);
+  if(e.button===2||e.altKey){panning=true;lastMx=mx;lastMy=my;return;}
+  const[cx,cy]=s2c(mx,my);
+  if(pasting){commitPaste(cx,cy);return;}
+  if(movingSelection){
+    commitMove(cx-(moveStartCell?moveStartCell[0]:cx),cy-(moveStartCell?moveStartCell[1]:cy));return;
+  }
+  if(rotatingSelection){commitRotate();return;}
+  if(tool==='select'){
+    selStart={x:cx,y:cy};selEnd={x:cx,y:cy};selDragging=true;movingSelection=false;updateSelUI();
+  } else {
+    pushUndo(); // one snapshot per paint stroke (mousedown only)
+    dragging=true;placeAt(cx,cy);
+  }
+  draw();
+});
+
+canvas.addEventListener('mousemove',e=>{
+  const[mx,my]=getPos(e);
+  if(panning){ox+=mx-lastMx;oy+=my-lastMy;lastMx=mx;lastMy=my;draw();return;}
+  const[cx,cy]=s2c(mx,my);
+  hoverCell=[cx,cy];
+  if(selDragging){selEnd={x:cx,y:cy};updateSelUI();}
+  else if(dragging&&tool!=='select'){placeAt(cx,cy);}
+  draw();
+});
+
+canvas.addEventListener('mouseup',e=>{
+  if(e.button===2||e.altKey){panning=false;return;}
+  const[mx,my]=getPos(e);const[cx,cy]=s2c(mx,my);
+  if(selDragging){selEnd={x:cx,y:cy};selDragging=false;updateSelUI();}
+  dragging=false;draw();
+});
+
+canvas.addEventListener('mouseleave',()=>{dragging=false;panning=false;selDragging=false;hoverCell=null;draw();});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const[mx,my]=getPos(e);
+  const f=e.deltaY<0?1.15:1/1.15,ns=Math.max(0.2,Math.min(6,scale*f));
+  ox=mx-(mx-ox)*(ns/scale);oy=my-(my-oy)*(ns/scale);scale=ns;draw();
+},{passive:false});
+
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT')return;
+  const ctrl=e.ctrlKey||e.metaKey;
+  if(e.key===' '||e.code==='Space'){e.preventDefault();userStep();}
+  else if((e.key==='z'||e.key==='Z')&&ctrl){e.preventDefault();undo();}
+  else if(e.key==='t'||e.key==='T'){userSubtick();}
+  else if(e.key==='s'||e.key==='S'&&!ctrl){setTool('select');}
+  else if(e.key==='c'||e.key==='C'){if(selStart&&selEnd)copySelection();}
+  else if(e.key==='v'||e.key==='V'){if(clipboard)pasteMode();}
+  else if(e.key==='g'||e.key==='G'){if(selStart&&selEnd)moveSelection();}
+  else if(e.key==='r'||e.key==='R'){if(selStart&&selEnd)startRotatePreview();}
+  else if(e.key==='Delete'||e.key==='Backspace'){if(selStart&&selEnd)deleteSelection();}
+  else if(e.key==='Escape'){deselect();}
+});
+
+window.addEventListener('resize',resize);
+resize();
+ox=canvas.width/2-8*CELL*scale;oy=canvas.height/2-5*CELL*scale;
+updateSpeed();updateSubtickUI();draw();
+
+// ── World-space drawing layer ──────────────────────────────────────────────────
+// Strokes are stored in world (grid) coordinates and re-projected each frame,
+// so they pan/zoom with the simulation exactly like cells do.
+//
+// drawStrokes: array of {pts:[{wx,wy},...], color, size, erase}
+// currentStroke: the stroke being built during a mousedown drag
+
+let drawMode=false,eraseDrawMode=false;
+let drawPainting=false;
+let drawStrokes=[];
+let currentStroke=null;
+
+function s2w(mx,my){return{wx:(mx-ox)/(CELL*scale),wy:(my-oy)/(CELL*scale)};}
+
+function toggleDrawMode(){
+  eraseDrawMode=false;
+  drawMode=!drawMode;
+  document.getElementById('btn-draw').classList.toggle('active',drawMode);
+  document.getElementById('btn-erase-draw').classList.remove('active');
+  canvas.style.cursor=drawMode?'crosshair':'';
+  document.getElementById('draw-opts').style.display=drawMode?'flex':'none';
+}
+function toggleEraseDrawMode(){
+  drawMode=false;
+  eraseDrawMode=!eraseDrawMode;
+  document.getElementById('btn-erase-draw').classList.toggle('active',eraseDrawMode);
+  document.getElementById('btn-draw').classList.remove('active');
+  canvas.style.cursor=eraseDrawMode?'cell':'';
+  document.getElementById('draw-opts').style.display='none';
+}
+
+function renderDrawStrokes(){
+  const allStrokes=currentStroke?[...drawStrokes,currentStroke]:drawStrokes;
+  if(!allStrokes.length)return;
+  ctx.save();
+  for(const stroke of allStrokes){
+    if(!stroke.pts.length)continue;
+    ctx.globalCompositeOperation=stroke.erase?'destination-out':'source-over';
+    ctx.strokeStyle=stroke.erase?'rgba(0,0,0,1)':stroke.color;
+    ctx.lineWidth=stroke.size*scale;
+    ctx.lineCap='round';
+    ctx.lineJoin='round';
+    ctx.beginPath();
+    const sx0=stroke.pts[0].wx*CELL*scale+ox,sy0=stroke.pts[0].wy*CELL*scale+oy;
+    ctx.moveTo(sx0,sy0);
+    for(let i=1;i<stroke.pts.length;i++){
+      const sx=stroke.pts[i].wx*CELL*scale+ox;
+      const sy=stroke.pts[i].wy*CELL*scale+oy;
+      ctx.lineTo(sx,sy);
+    }
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation='source-over';
+  ctx.restore();
+}
+
+canvas.addEventListener('mousedown',e=>{
+  if(!drawMode&&!eraseDrawMode)return;
+  if(e.button!==0)return;
+  e.stopImmediatePropagation();
+  drawPainting=true;
+  const[mx,my]=getPos(e);
+  const pt=s2w(mx,my);
+  const sz=parseInt(document.getElementById('draw-size').value);
+  const col=document.getElementById('draw-color').value;
+  currentStroke={pts:[pt],color:col,size:sz,erase:eraseDrawMode};
+  draw();
+},true);
+
+canvas.addEventListener('mousemove',e=>{
+  if(!drawPainting||(!drawMode&&!eraseDrawMode))return;
+  e.stopImmediatePropagation();
+  const[mx,my]=getPos(e);
+  currentStroke.pts.push(s2w(mx,my));
+  draw();
+},true);
+
+canvas.addEventListener('mouseup',e=>{
+  if(!drawPainting)return;
+  e.stopImmediatePropagation();
+  if(currentStroke&&currentStroke.pts.length)drawStrokes.push(currentStroke);
+  currentStroke=null;
+  drawPainting=false;
+  draw();
+},true);
+
+canvas.addEventListener('mouseleave',e=>{
+  if(!drawPainting)return;
+  if(currentStroke&&currentStroke.pts.length)drawStrokes.push(currentStroke);
+  currentStroke=null;
+  drawPainting=false;
+  draw();
+},true);
+</script>
+</body>
+</html>
