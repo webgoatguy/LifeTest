@@ -230,7 +230,7 @@ function massMovement(mass,g){
     }
   }
   if(!G)return{dx:0,dy:0};
-  return{dx:Math.trunc((R-L)/G),dy:Math.trunc((D-U)/G)};
+  return{dx:Math.floor(R/G)-Math.floor(L/G),dy:Math.floor(D/G)-Math.floor(U/G)};
 }
 
 // ── Direction helpers ─────────────────────────────────────────────────────────
@@ -286,75 +286,26 @@ function phaseRotate(g){
 
 function phaseConvert(g){
   const out={...g};
-  const writes=new Map();  // output cell → [{matchVal}]
-  const selfDestructs=new Set(); // keys of converters that should die
-
   for(const[k,cell] of Object.entries(g)){
     if(cell.type!=='converter')continue;
     const[cx,cy]=parseKey(k);
-
-    let tx,ty,inputs;
-    if(cell.dir==='right'){
-      tx=cx+1;ty=cy;
-      inputs=[g[key(cx,cy-1)],g[key(cx,cy+1)],g[key(cx-1,cy)]];
-    }else if(cell.dir==='left'){
-      tx=cx-1;ty=cy;
-      inputs=[g[key(cx,cy-1)],g[key(cx,cy+1)],g[key(cx+1,cy)]];
-    }else if(cell.dir==='down'){
-      tx=cx;ty=cy+1;
-      inputs=[g[key(cx-1,cy)],g[key(cx+1,cy)],g[key(cx,cy-1)]];
+    let a,b,tx,ty;
+    if(cell.dir==='left'||cell.dir==='right'){
+      a=g[key(cx,cy-1)];b=g[key(cx,cy+1)];
+      tx=cx+(cell.dir==='left'?-1:1);ty=cy;
     }else{
-      tx=cx;ty=cy-1;
-      inputs=[g[key(cx-1,cy)],g[key(cx+1,cy)],g[key(cx,cy+1)]];
+      a=g[key(cx-1,cy)];b=g[key(cx+1,cy)];
+      tx=cx;ty=cy+(cell.dir==='down'?1:-1);
     }
-
-    const norm=c=>c||null;
     const same=(p,q)=>{
-      p=norm(p);q=norm(q);
-      if(!p&&!q)return true;
-      if(!p||!q)return false;
+      if(!p&&!q)return true;if(!p||!q)return false;
       return p.type===q.type&&p.dir===q.dir&&p.rot===q.rot;
     };
-    const[a,b,c2]=inputs;
-
-    if(same(a,b)&&same(b,c2)){
-      // All 3 same → self-destruct
-      selfDestructs.add(k);
-    } else {
-      let matchVal=undefined;
-      if(same(a,b)&&!same(b,c2))matchVal=norm(a);
-      else if(same(a,c2)&&!same(a,b))matchVal=norm(a);
-      else if(same(b,c2)&&!same(a,b))matchVal=norm(b);
-
-      if(matchVal!==undefined){
-        const tk=key(tx,ty);
-        if(!writes.has(tk))writes.set(tk,[]);
-        writes.get(tk).push(matchVal);
-      }
+    if(same(a,b)){
+      const tk=key(tx,ty);
+      if(!a)delete out[tk];else out[tk]={...a};
     }
   }
-
-  // Step 1: apply output writes
-  for(const[tk,vals] of writes){
-    if(vals.length>1){
-      delete out[tk]; // two converters wrote here → kill
-    } else {
-      if(!vals[0])delete out[tk];
-      else out[tk]={...vals[0]};
-    }
-  }
-
-  // Step 2: apply self-destructions
-  for(const k of selfDestructs)delete out[k];
-
-  // Step 3: collision resolution — if a write landed on a self-destructing converter's cell
-  // or any cell now has 2 blocks, kill it. Check: did a write target a cell that a
-  // self-destructing converter occupied? That cell got the write in step 1, converter
-  // deleted in step 2 — no collision. The only collision case is two writes to same cell
-  // (handled above) or a write onto a cell occupied by a non-vacating block.
-  // Since converter output replaces (not stacks), the only multi-block scenario is
-  // two converters writing to the same cell, already resolved. No further pass needed.
-
   return out;
 }
 
@@ -849,7 +800,6 @@ let drawPainting=false;
 let drawStrokes=[];    // {pts:[{wx,wy}], color, size, erase}
 let currentStroke=null;
 
-// Offscreen canvas for the drawing layer
 const offCanvas=document.createElement('canvas');
 const offCtx=offCanvas.getContext('2d');
 function syncOffCanvas(){
@@ -881,7 +831,6 @@ function clearAllDrawings(){
   drawStrokes=[];currentStroke=null;draw();
 }
 
-// Paint one stroke path onto a given 2d context
 function paintStroke(c,stroke){
   if(!stroke.pts.length)return;
   c.lineWidth=stroke.size*scale;
@@ -893,14 +842,10 @@ function paintStroke(c,stroke){
   c.stroke();
 }
 
-// Render all drawing strokes onto the offscreen canvas, then blit to main.
-// Erase strokes use destination-out on the offscreen canvas only, so the
-// simulation underneath is never affected.
 function renderDrawStrokes(){
   const allStrokes=currentStroke?[...drawStrokes,currentStroke]:drawStrokes;
   if(!allStrokes.length)return;
 
-  // Match offscreen size to main canvas
   if(offCanvas.width!==canvas.width||offCanvas.height!==canvas.height)syncOffCanvas();
   offCtx.clearRect(0,0,offCanvas.width,offCanvas.height);
 
@@ -917,7 +862,6 @@ function renderDrawStrokes(){
   }
   offCtx.globalCompositeOperation='source-over';
 
-  // Blit the drawing layer onto the main canvas — simulation pixels untouched
   ctx.drawImage(offCanvas,0,0);
 }
 
@@ -974,11 +918,11 @@ function encodePattern(g){
   const parts=[PATTERN_HEADER];
   for(const[k,cell] of Object.entries(g)){
     const[cx,cy]=parseKey(k);
-    if(cell.type==='neutral')      parts.push(`${cx},${cy}:N`);
-    else if(cell.type==='glue')    parts.push(`${cx},${cy}:G`);
-    else if(cell.type==='move')    parts.push(`${cx},${cy}:M:${DIR_ENC[cell.dir]}`);
+    if(cell.type==='neutral')       parts.push(`${cx},${cy}:N`);
+    else if(cell.type==='glue')     parts.push(`${cx},${cy}:G`);
+    else if(cell.type==='move')     parts.push(`${cx},${cy}:M:${DIR_ENC[cell.dir]}`);
     else if(cell.type==='converter')parts.push(`${cx},${cy}:C:${DIR_ENC[cell.dir]}`);
-    else if(cell.type==='rotator') parts.push(`${cx},${cy}:R:${cell.rot}`);
+    else if(cell.type==='rotator')  parts.push(`${cx},${cy}:R:${cell.rot}`);
   }
   return parts.join(' ');
 }
@@ -997,8 +941,8 @@ function decodePattern(str){
     const cx=+coords[0],cy=+coords[1];
     if(isNaN(cx)||isNaN(cy))continue;
     const k=key(cx,cy);
-    if(type==='N')      g[k]={type:'neutral'};
-    else if(type==='G') g[k]={type:'glue'};
+    if(type==='N')           g[k]={type:'neutral'};
+    else if(type==='G')      g[k]={type:'glue'};
     else if(type==='M'&&rest[0]) g[k]={type:'move',dir:DIR_DEC[rest[0]]||'right'};
     else if(type==='C'&&rest[0]) g[k]={type:'converter',dir:DIR_DEC[rest[0]]||'up'};
     else if(type==='R'&&rest[0]) g[k]={type:'rotator',rot:rest[0]==='ccw'?'ccw':'cw'};
@@ -1015,7 +959,6 @@ async function copyPattern(){
     await navigator.clipboard.writeText(str);
     flashBtn('btn-copy-pattern','✓ Copied!');
   }catch{
-    // Fallback: prompt so they can manually copy
     window.prompt('Copy this pattern string:',str);
   }
 }
@@ -1025,7 +968,6 @@ async function pastePattern(){
     const str=await navigator.clipboard.readText();
     applyPatternString(str);
   }catch{
-    // Clipboard read blocked — show a prompt instead
     const str=window.prompt('Paste your pattern string here:');
     if(str)applyPatternString(str);
   }
@@ -1039,7 +981,6 @@ function applyPatternString(str){
   genCount=0;subtickPhase=0;
   selStart=null;selEnd=null;
   updateSelUI();updateSubtickUI();
-  // Centre the view on the loaded pattern
   const keys=Object.keys(g);
   if(keys.length){
     let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
@@ -1069,7 +1010,7 @@ function jumpToContent(){
   draw();
 }
 
-
+function flashBtn(id,msg){
   const btn=document.getElementById(id);
   const orig=btn.textContent;
   btn.textContent=msg;
