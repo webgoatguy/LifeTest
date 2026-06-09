@@ -67,7 +67,7 @@ kbd{font-size:10px;background:#333;border:1px solid #555;border-radius:3px;paddi
   <button class="tool-btn" id="btn-auto" onclick="toggleAuto()">⏵ Auto</button>
   <div class="speed-wrap">
     <label>Speed:</label>
-    <input type="range" id="speed-slider" min="1" max="8" value="4" oninput="updateSpeed()">
+    <input type="range" id="speed-slider" min="1" max="9" value="4" oninput="updateSpeed()">
     <span id="speed-label">5/s</span>
   </div>
   <div class="sep"></div>
@@ -80,6 +80,7 @@ kbd{font-size:10px;background:#333;border:1px solid #555;border-radius:3px;paddi
     <button class="tool-btn" onclick="reflectSelection('v')">Flip V</button>
     <button class="tool-btn danger" onclick="deleteSelection()">Delete <kbd>Del</kbd></button>
     <button class="tool-btn" onclick="deselect()">Deselect <kbd>Esc</kbd></button>
+    <button class="tool-btn" id="btn-copy-sel-pattern" onclick="copySelectionPattern()" title="Copy selected cells as shareable text">📋 Copy Selection</button>
   </div>
   <div class="sep"></div>
   <button class="tool-btn" id="btn-jump" onclick="jumpToContent()" title="Centre the view on the pattern">🎯 Find Cells</button>
@@ -339,7 +340,7 @@ function userStep(){fullStep(true)}
 function userSubtick(){subtick(true)}
 
 // ── Speed ─────────────────────────────────────────────────────────────────────
-const speedValues=[1,2,3,5,8,15,30,60];
+const speedValues=[1,2,3,5,8,15,30,60,100];
 function updateSpeed(){
   const v=parseInt(document.getElementById('speed-slider').value);
   const fps=speedValues[v-1];
@@ -766,7 +767,7 @@ canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('wheel',e=>{
   e.preventDefault();
   const[mx,my]=getPos(e);
-  const f=e.deltaY<0?1.15:1/1.15,ns=Math.max(0.2,Math.min(6,scale*f));
+  const f=e.deltaY<0?1.15:1/1.15,ns=Math.max(0.05,Math.min(6,scale*f));
   ox=mx-(mx-ox)*(ns/scale);oy=my-(my-oy)*(ns/scale);scale=ns;draw();
 },{passive:false});
 
@@ -948,6 +949,20 @@ function decodePattern(str){
     else if(type==='R'&&rest[0]) g[k]={type:'rotator',rot:rest[0]==='ccw'?'ccw':'cw'};
   }
   return g;
+}
+
+async function copySelectionPattern(){
+  const cells=getSelectedCells();
+  if(!cells.length){flashBtn('btn-copy-sel-pattern','(empty)');return;}
+  const subGrid={};
+  for(const{cx,cy,cell} of cells)subGrid[key(cx,cy)]=cell;
+  const str=encodePattern(subGrid);
+  try{
+    await navigator.clipboard.writeText(str);
+    flashBtn('btn-copy-sel-pattern','✓ Copied!');
+  }catch{
+    window.prompt('Copy this pattern string:',str);
+  }
 }
 
 async function copyPattern(){
